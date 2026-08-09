@@ -392,7 +392,10 @@ pub fn metrics(doc: &str) -> Metrics {
 
 /// Missing required generic section titles. Code fence interiors are ignored.
 pub fn missing_sections(spec: &Spec, doc: &str) -> Vec<String> {
-    let heads: Vec<String> = split_sections(&strip_code_fences(doc)).into_iter().map(|(h, _)| norm(&h)).collect();
+    let heads: Vec<String> = split_sections(&strip_code_fences(doc))
+        .into_iter()
+        .map(|(h, _)| norm(&h))
+        .collect();
     spec.sections
         .iter()
         .filter(|s| {
@@ -659,7 +662,8 @@ pub fn format_issues(spec: &Spec, doc: &str) -> Vec<String> {
         match extract_llms_txt_snippet(doc) {
             Some(snippet) => issues.extend(llms_txt_issues(&snippet)),
             None => issues.push(
-                "No llms.txt snippet (option enabled) → add one in a ```llms.txt code block".to_string(),
+                "No llms.txt snippet (option enabled) → add one in a ```llms.txt code block"
+                    .to_string(),
             ),
         }
     }
@@ -670,7 +674,9 @@ pub fn format_issues(spec: &Spec, doc: &str) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::spec::{AnswerSummarySpec, Criterion, FaqSpec, LlmsTxtSpec, StatisticsSpec, StructuredDataSpec};
+    use crate::spec::{
+        AnswerSummarySpec, Criterion, FaqSpec, LlmsTxtSpec, StatisticsSpec, StructuredDataSpec,
+    };
 
     fn min_spec() -> Spec {
         Spec {
@@ -681,7 +687,12 @@ mod tests {
             angles: vec![],
             bands: vec![],
             sections: vec![],
-            criteria: vec![Criterion { id: "citability".into(), name: "Citability".into(), weight: 1.0, guide: String::new() }],
+            criteria: vec![Criterion {
+                id: "citability".into(),
+                name: "Citability".into(),
+                weight: 1.0,
+                guide: String::new(),
+            }],
             answer_summary: AnswerSummarySpec::default(),
             statistics: StatisticsSpec::default(),
             faq: FaqSpec::default(),
@@ -759,7 +770,11 @@ mod tests {
         let doc = "```json\n{\"@type\":\"Article\",\"note\":\"example: ```code``` inline\"}\n```";
         let blocks = extract_jsonld_blocks(doc);
         assert_eq!(blocks.len(), 1);
-        assert!(serde_json::from_str::<serde_json::Value>(&blocks[0]).is_ok(), "{:?}", blocks);
+        assert!(
+            serde_json::from_str::<serde_json::Value>(&blocks[0]).is_ok(),
+            "{:?}",
+            blocks
+        );
     }
 
     #[test]
@@ -777,21 +792,37 @@ mod tests {
         assert_eq!(heads.len(), 1, "{:?}", heads);
         assert_eq!(heads[0].text, "Real Title");
         let m = metrics(doc);
-        assert_eq!(m.stat_tokens, 0, "Numbers inside fences must not be counted as stats: {}", m.stat_tokens);
+        assert_eq!(
+            m.stat_tokens, 0,
+            "Numbers inside fences must not be counted as stats: {}",
+            m.stat_tokens
+        );
     }
 
     #[test]
     fn faqpage_missing_main_entity_is_flagged() {
-        let v: serde_json::Value = serde_json::from_str(r#"{"@context":"https://schema.org","@type":"FAQPage"}"#).unwrap();
+        let v: serde_json::Value =
+            serde_json::from_str(r#"{"@context":"https://schema.org","@type":"FAQPage"}"#).unwrap();
         let issues = schema_field_issues(&v);
-        assert!(issues.iter().any(|i| i.contains("mainEntity")), "{:?}", issues);
+        assert!(
+            issues.iter().any(|i| i.contains("mainEntity")),
+            "{:?}",
+            issues
+        );
     }
 
     #[test]
     fn article_missing_headline_is_flagged() {
-        let v: serde_json::Value = serde_json::from_str(r#"{"@context":"https://schema.org","@type":"Article","author":"me"}"#).unwrap();
+        let v: serde_json::Value = serde_json::from_str(
+            r#"{"@context":"https://schema.org","@type":"Article","author":"me"}"#,
+        )
+        .unwrap();
         let issues = schema_field_issues(&v);
-        assert!(issues.iter().any(|i| i.contains("headline")), "{:?}", issues);
+        assert!(
+            issues.iter().any(|i| i.contains("headline")),
+            "{:?}",
+            issues
+        );
     }
 
     #[test]
@@ -808,16 +839,42 @@ mod tests {
         let v: serde_json::Value =
             serde_json::from_str(r#"{"@context":"https://schema.org","@type":"Product","description":"A short description"}"#).unwrap();
         let issues = schema_field_issues(&v);
-        assert!(issues.iter().any(|i| i.contains("name") && i.contains("required")), "{:?}", issues);
-        assert!(issues.iter().any(|i| i.contains("image") && i.contains("required")), "{:?}", issues);
+        assert!(
+            issues
+                .iter()
+                .any(|i| i.contains("name") && i.contains("required")),
+            "{:?}",
+            issues
+        );
+        assert!(
+            issues
+                .iter()
+                .any(|i| i.contains("image") && i.contains("required")),
+            "{:?}",
+            issues
+        );
     }
 
     #[test]
     fn howto_missing_required_fields_is_flagged() {
-        let v: serde_json::Value =
-            serde_json::from_str(r#"{"@context":"https://schema.org","@type":"HowTo","totalTime":"PT30M"}"#).unwrap();
+        let v: serde_json::Value = serde_json::from_str(
+            r#"{"@context":"https://schema.org","@type":"HowTo","totalTime":"PT30M"}"#,
+        )
+        .unwrap();
         let issues = schema_field_issues(&v);
-        assert!(issues.iter().any(|i| i.contains("name") && i.contains("required")), "{:?}", issues);
-        assert!(issues.iter().any(|i| i.contains("step") && i.contains("required")), "{:?}", issues);
+        assert!(
+            issues
+                .iter()
+                .any(|i| i.contains("name") && i.contains("required")),
+            "{:?}",
+            issues
+        );
+        assert!(
+            issues
+                .iter()
+                .any(|i| i.contains("step") && i.contains("required")),
+            "{:?}",
+            issues
+        );
     }
 }

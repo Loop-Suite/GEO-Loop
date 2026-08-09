@@ -46,9 +46,13 @@ fn structure_requirements(spec: &Spec) -> String {
         .iter()
         .map(|s| s.to_lowercase())
         .collect();
-    if types_lower.contains(&"article".to_string()) && types_lower.contains(&"faqpage".to_string()) {
+    if types_lower.contains(&"article".to_string()) && types_lower.contains(&"faqpage".to_string())
+    {
         let example = schema::example_graph(
-            &schema::ArticleMeta { headline: "<document title>", description: "<one-sentence summary>" },
+            &schema::ArticleMeta {
+                headline: "<document title>",
+                description: "<one-sentence summary>",
+            },
             &[schema::QaPair {
                 question: "<example FAQ question>".to_string(),
                 answer: "<example FAQ answer>".to_string(),
@@ -65,16 +69,33 @@ fn structure_requirements(spec: &Spec) -> String {
 /// Prompt for the initial generation.
 pub fn build_prompt(spec: &Spec, idea: &str, angle: &str) -> String {
     let mut p = String::new();
-    p.push_str("# Task\nWrite a GEO-optimized draft document that meets the requirements below.\n\n");
+    p.push_str(
+        "# Task\nWrite a GEO-optimized draft document that meets the requirements below.\n\n",
+    );
     p.push_str(&format!("## Document: {}\n{}\n\n", spec.name, spec.context));
     if !angle.is_empty() {
-        p.push_str(&format!("## Differentiation angle for this draft\n{}\n\n", angle));
+        p.push_str(&format!(
+            "## Differentiation angle for this draft\n{}\n\n",
+            angle
+        ));
     }
-    p.push_str(&format!("## Source material (topic/evidence)\n{}\n\n", idea));
-    p.push_str(&format!("## Body section structure\n{}\n\n", spec.sections_prompt()));
-    p.push_str(&format!("## Evaluation criteria (keep these in mind while writing)\n{}\n\n", spec.rubric_prompt()));
+    p.push_str(&format!(
+        "## Source material (topic/evidence)\n{}\n\n",
+        idea
+    ));
+    p.push_str(&format!(
+        "## Body section structure\n{}\n\n",
+        spec.sections_prompt()
+    ));
+    p.push_str(&format!(
+        "## Evaluation criteria (keep these in mind while writing)\n{}\n\n",
+        spec.rubric_prompt()
+    ));
     if spec.total_words > 0 {
-        p.push_str(&format!("## Total length\nApprox. {} words\n\n", spec.total_words));
+        p.push_str(&format!(
+            "## Total length\nApprox. {} words\n\n",
+            spec.total_words
+        ));
     }
     p.push_str("## GEO structure requirements (all mandatory)\n");
     p.push_str(&structure_requirements(spec));
@@ -99,13 +120,25 @@ pub fn build_revise_prompt(
     let mut p = String::new();
     p.push_str("# Task\nRevise the GEO document draft below according to the review feedback and output the entire document again.\n\n");
     p.push_str(&format!("## Document: {}\n{}\n\n", spec.name, spec.context));
-    p.push_str(&format!("## Source material (topic/evidence)\n{}\n\n", idea));
+    p.push_str(&format!(
+        "## Source material (topic/evidence)\n{}\n\n",
+        idea
+    ));
     p.push_str(&format!("## Current draft\n{}\n\n", prev_doc));
-    p.push_str(&format!("## Review feedback (must be addressed)\n{}\n\n", feedback));
+    p.push_str(&format!(
+        "## Review feedback (must be addressed)\n{}\n\n",
+        feedback
+    ));
     if !weak.is_empty() {
-        p.push_str(&format!("## Items with especially low scores\n{}\n\n", weak));
+        p.push_str(&format!(
+            "## Items with especially low scores\n{}\n\n",
+            weak
+        ));
     }
-    p.push_str(&format!("## Evaluation criteria\n{}\n\n", spec.rubric_prompt()));
+    p.push_str(&format!(
+        "## Evaluation criteria\n{}\n\n",
+        spec.rubric_prompt()
+    ));
     p.push_str("## GEO structure requirements (all mandatory, keep as is)\n");
     p.push_str(&structure_requirements(spec));
     p.push('\n');

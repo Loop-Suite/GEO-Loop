@@ -29,7 +29,11 @@ fn header(spec: &Spec, rows: &[&Scored]) -> String {
         "{} documents · {} scoring rounds per document · Scoring model: {}\n\n",
         rows.len(),
         rounds,
-        if models.is_empty() { "-".into() } else { models }
+        if models.is_empty() {
+            "-".into()
+        } else {
+            models
+        }
     ));
     md
 }
@@ -102,7 +106,11 @@ fn details(rows: &[&Scored]) -> String {
             md.push('\n');
         }
         md.push_str("Suggested improvements:\n\n");
-        for imp in s.improvements.iter().filter(|i| !s.format_issues.contains(i)) {
+        for imp in s
+            .improvements
+            .iter()
+            .filter(|i| !s.format_issues.contains(i))
+        {
             md.push_str(&format!("- {}\n", imp));
         }
     }
@@ -112,7 +120,11 @@ fn details(rows: &[&Scored]) -> String {
 /// Ranking report.
 pub fn write_report(out_dir: &Path, spec: &Spec, scored: &[Scored]) -> Result<PathBuf> {
     let mut rows: Vec<&Scored> = scored.iter().collect();
-    rows.sort_by(|a, b| b.total.partial_cmp(&a.total).unwrap_or(std::cmp::Ordering::Equal));
+    rows.sort_by(|a, b| {
+        b.total
+            .partial_cmp(&a.total)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
 
     let mut md = header(spec, &rows);
     md.push_str(&table(spec, &rows));
@@ -145,10 +157,15 @@ pub fn write_loop_report(
     // If a "spike after stagnation" (suspected reward-hacking) warning exists, highlight it prominently at the top of the report.
     // If a held-out gate (--gate-model) result is already available, point to it as well;
     // otherwise, recommend using --gate-model on the next run (does not trigger an automatic re-run).
-    let has_spike = warnings.iter().any(|w| w.starts_with("Spike after stagnation"));
+    let has_spike = warnings
+        .iter()
+        .any(|w| w.starts_with("Spike after stagnation"));
     if has_spike {
         md.push_str("## 🚨 Spike After Stagnation Warning\n\n");
-        for w in warnings.iter().filter(|w| w.starts_with("Spike after stagnation")) {
+        for w in warnings
+            .iter()
+            .filter(|w| w.starts_with("Spike after stagnation"))
+        {
             md.push_str(&format!("> **{}**\n\n", w));
         }
         if gate.is_some() {

@@ -76,7 +76,10 @@ pub struct AnswerSummarySpec {
 
 impl Default for AnswerSummarySpec {
     fn default() -> Self {
-        AnswerSummarySpec { max_words: default_max_words(), required: true }
+        AnswerSummarySpec {
+            max_words: default_max_words(),
+            required: true,
+        }
     }
 }
 
@@ -96,7 +99,10 @@ pub struct StatisticsSpec {
 
 impl Default for StatisticsSpec {
     fn default() -> Self {
-        StatisticsSpec { min_count: default_min_stat(), require_sourced: true }
+        StatisticsSpec {
+            min_count: default_min_stat(),
+            require_sourced: true,
+        }
     }
 }
 
@@ -116,7 +122,10 @@ pub struct FaqSpec {
 
 impl Default for FaqSpec {
     fn default() -> Self {
-        FaqSpec { min_qa: default_min_qa(), require_faqpage: true }
+        FaqSpec {
+            min_qa: default_min_qa(),
+            require_faqpage: true,
+        }
     }
 }
 
@@ -133,7 +142,9 @@ pub struct StructuredDataSpec {
 
 impl Default for StructuredDataSpec {
     fn default() -> Self {
-        StructuredDataSpec { required_types: default_required_types() }
+        StructuredDataSpec {
+            required_types: default_required_types(),
+        }
     }
 }
 
@@ -198,7 +209,8 @@ impl Spec {
 
     pub fn sections_prompt(&self) -> String {
         if self.sections.is_empty() {
-            return "(No specific sections defined — structure freely to fit the topic)".to_string();
+            return "(No specific sections defined — structure freely to fit the topic)"
+                .to_string();
         }
         self.sections
             .iter()

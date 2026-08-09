@@ -73,8 +73,14 @@ mod tests {
     #[test]
     fn example_graph_has_required_types() {
         let g = example_graph(
-            &ArticleMeta { headline: "Title", description: "Summary" },
-            &[QaPair { question: "Question?".to_string(), answer: "Answer".to_string() }],
+            &ArticleMeta {
+                headline: "Title",
+                description: "Summary",
+            },
+            &[QaPair {
+                question: "Question?".to_string(),
+                answer: "Answer".to_string(),
+            }],
         );
         let mut types = std::collections::BTreeSet::new();
         checks::collect_types(&g, &mut types);

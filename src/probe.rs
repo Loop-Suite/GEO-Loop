@@ -84,9 +84,9 @@ pub fn run(llm: &Llm, doc: &str, out_dir: &Path) -> Result<Vec<ProbeItem>> {
 
     let mut items = Vec::new();
     for (question, doc_answer) in pairs {
-        let probe_answer = llm
-            .text(&question, Some(PROBE_SYSTEM))
-            .with_context(|| format!("Probe call failed: {}", crate::llm::truncate(&question, 80)))?;
+        let probe_answer = llm.text(&question, Some(PROBE_SYSTEM)).with_context(|| {
+            format!("Probe call failed: {}", crate::llm::truncate(&question, 80))
+        })?;
         let overlap = keyword_overlap(&doc_answer, &probe_answer);
         items.push(ProbeItem {
             question,
@@ -126,7 +126,10 @@ fn write_report(out_dir: &Path, items: &[ProbeItem]) -> Result<PathBuf> {
         }
         md.push('\n');
         md.push_str(&format!("- Document answer: {}\n", it.doc_answer));
-        md.push_str(&format!("- Probe (context-free) answer: {}\n\n", it.probe_answer));
+        md.push_str(&format!(
+            "- Probe (context-free) answer: {}\n\n",
+            it.probe_answer
+        ));
     }
     let path = out_dir.join("report.md");
     std::fs::write(&path, &md).with_context(|| format!("Failed to write {}", path.display()))?;
