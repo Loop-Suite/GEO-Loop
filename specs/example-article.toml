@@ -1,0 +1,75 @@
+# Example spec for a GEO (Generative Engine Optimization) document.
+# For real use, copy this file and fill in the topic, audience, and required statistics.
+
+name = "Product/Service Introduction GEO Article (Example Spec)"
+context = """
+A single document aimed at being directly quoted/excerpted by generative
+answer engines like ChatGPT, Perplexity, and Google AI Overview when they
+answer user questions.
+Readers encounter this content not through search results but through the
+answer engine's summary.
+"""
+scoring_source = "In-house GEO rubric (citability/extractability/authority_signal/entity_clarity). No public scoring standard exists -> weights are allocated close to evenly."
+total_words = 900
+
+angles = [
+  "Foreground product/service comparison and decision criteria.",
+  "Foreground how-to execution steps in order.",
+  "Address common misconceptions/objections head-on via FAQ.",
+]
+
+[[sections]]
+id = "overview"
+title = "Overview"
+guide = "Define the core entity (product/service/concept) unambiguously and state who it is for"
+words = 200
+required = true
+
+[[sections]]
+id = "details"
+title = "Detailed Explanation"
+guide = "Explain how it works, its components, and real figures with supporting evidence"
+words = 400
+required = true
+
+[[criteria]]
+id = "citability"
+name = "Citability"
+weight = 30
+guide = "Can the first sentence (or first paragraph) of the answer alone be quoted as-is as an answer to the question?"
+
+[[criteria]]
+id = "extractability"
+name = "Extractability"
+weight = 25
+guide = "Is the heading/list/FAQ structure shaped so a parser/extraction engine can easily pull out specific blocks?"
+
+[[criteria]]
+id = "authority_signal"
+name = "Authority Signal"
+weight = 25
+guide = "Are the sources, statistics, and citations verifiable and trustworthy (free of speculation/exaggeration)?"
+
+[[criteria]]
+id = "entity_clarity"
+name = "Entity Clarity"
+weight = 20
+guide = "Is the core entity (product/concept/subject) clearly defined without pronouns or ambiguous references?"
+
+[answer_summary]
+max_words = 60
+required = true
+
+[statistics]
+min_count = 2
+require_sourced = true
+
+[faq]
+min_qa = 3
+require_faqpage = true
+
+[structured_data]
+required_types = ["Article", "FAQPage"]
+
+[llms_txt]
+enabled = true

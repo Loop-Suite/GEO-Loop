@@ -1,0 +1,44 @@
+geo-loop
+Copyright 2026 kimdzhekhon
+
+This software is distributed under the Apache License 2.0.
+
+## Architecture Origin
+
+This project's CLI structure, `claude -p` subprocess backend (`src/llm.rs`),
+loop/gate logic (`src/loop_run.rs`), and report format (`src/report.rs`) are
+ported from `Loop-Suite/bizplan-loop` (Apache-2.0), adapted for the GEO domain.
+
+## Ported Open Source Logic
+
+### Auriti-Labs/geo-optimizer-skill (MIT)
+https://github.com/Auriti-Labs/geo-optimizer-skill
+
+`src/checks.rs::llms_txt_issues()` is a Rust rewrite of the judgment logic in
+this repository's `geo_optimizer/core/audit_llms.py::_validate_llms_content()`
+(whether the H1 is the first line, whether there is a `>` blockquote summary,
+whether there are markdown links, whether the content meets a minimum length).
+Rather than porting the Python source as-is, it was newly implemented to fit
+this project's data structure (`Vec<String>` issue list).
+
+### Google Search Central structured data guidelines (primary source, not code)
+
+The field requirements for FAQPage (`mainEntity`/`name`/`acceptedAnswer.text`)
+and Article (`headline`/`image`/`datePublished`/`author` required;
+`dateModified`/`publisher`/`mainEntityOfPage` recommended) in
+`src/checks.rs::schema_field_issues()` were implemented directly based not on
+schema.org itself but on the Google Search Central documentation
+(https://developers.google.com/search/docs/appearance/structured-data/faqpage,
+https://developers.google.com/search/docs/appearance/structured-data/article).
+This is not a port of open source code but a translation of public
+documentation requirements into rules.
+
+### ai-search-guru/getcito (MIT)
+https://github.com/ai-search-guru/getcito-worlds-first-open-source-aio-aeo-or-geo-tool
+
+`src/schema.rs::faq_jsonld()` / `article_jsonld()` are Rust rewrites of the
+schema.org field structure (FAQPage → mainEntity → Question/acceptedAnswer/
+Answer) from this repository's `apps/www/src/lib/seo.ts::faqJsonLd()` /
+`articleJsonLd()`. Rather than porting the TypeScript source as-is, they were
+newly written as functions that build a `serde_json::Value`, and are used as
+an example scaffold shown in the generation prompt.
