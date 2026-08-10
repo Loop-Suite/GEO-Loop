@@ -7,6 +7,11 @@ simulation — run against an adversarial test document to check whether the 5 f
 in practice. No bugs were found in phase 2; this is a record of what was checked and what it
 cost, not a discovery report.
 
+A follow-up **production hardening round** (see [below](#production-hardening-round)) then
+re-audited those fixes adversarially, tripled the test count, cut a tagged release, and ran a
+*second* real runtime verification pass against a different adversarial document — which did
+find and fix a real bug, one the first runtime pass never exercised.
+
 ## TL;DR
 
 | Phase | Scope | Result | Real cost |
@@ -14,7 +19,13 @@ cost, not a discovery report.
 | Round 1 — static review | full repo | 2 issues filed and fixed (#2, #3) | $0 (static) |
 | Round 2 — deep-dive on round-1 area | `checks.rs` / `probe.rs` | 3 more issues filed and fixed (#4, #5, #6) | $0 (static) |
 | Runtime verification | `geo score` + `geo probe` on a purpose-built adversarial doc | 0 new bugs — all 5 fixes confirmed by measured output | $0.0712 |
-| **Total** | | **5/5 issues fixed, 0 found at runtime** | **$0.0712** |
+| **Round 1 total** | | **5/5 issues fixed, 0 found at runtime** | **$0.0712** |
+| Adversarial re-audit | guard-call-site audit + JSON-LD/ReDoS/path-traversal/panic checks | 0 new bugs, no issue filed | $0 (static) |
+| Edge-case tests | empty/huge/malformed-JSON-LD/unicode inputs | 29 → 57 tests (+28), [#12](https://github.com/Loop-Suite/GEO-Loop/pull/12) | $0 |
+| Versioning | `CHANGELOG.md` + tag | [#13](https://github.com/Loop-Suite/GEO-Loop/pull/13), [`v0.1.0`](https://github.com/Loop-Suite/GEO-Loop/releases/tag/v0.1.0) | $0 |
+| Runtime verification, round 2 | `geo score` + `geo probe` on a *different* adversarial doc | 1 real bug found & fixed: system-prompt leak ([#14](https://github.com/Loop-Suite/GEO-Loop/issues/14) / [#15](https://github.com/Loop-Suite/GEO-Loop/pull/15)) | ≈$0.14 |
+| **Production hardening round total** | | **1/1 issue found & fixed, tests 29→57** | **≈$0.14** |
+| **Grand total** | | **6 issues fixed across both rounds, 57 tests. `v0.1.0` was tagged before #14/#15 landed — patched forward as `v0.1.1`** | **≈$0.21** |
 
 **What this bought:**
 
@@ -167,3 +178,130 @@ adversarial document and a real model call, which the static review alone couldn
 | [#4](https://github.com/Loop-Suite/GEO-Loop/issues/4) | `answer_summary` reads code-fence content | `1a39dfa` |
 | [#5](https://github.com/Loop-Suite/GEO-Loop/issues/5) | Case-sensitive section-title matching | `7c13429` |
 | [#6](https://github.com/Loop-Suite/GEO-Loop/issues/6) | `geo probe` extracts fake FAQ from code fence | `061f9de` |
+
+## Production hardening round
+
+A second pass, done after the round above shipped as `v0.1.0`: an adversarial re-audit of
+the round-1 fixes, a much larger edge-case regression suite, semantic versioning
+(`CHANGELOG.md` + tag), and — the part that mattered — a *second* real runtime verification
+pass against a different adversarial document than the one used above. That second pass
+found a real bug the first runtime pass never exercised.
+
+### 1. Adversarial re-audit of the round-1 fixes (0 new bugs)
+
+Systematically grepped every call site of every `strip_code_fences()`-dependent function in
+`checks.rs` — `parse_headings`, `split_sections`, `stat_token_count`, `source_link_count`,
+`faq_metrics`, `first_paragraph`, `heading_hierarchy_issues`, `metrics`, `missing_sections`,
+`extract_faq_pairs`, `extract_jsonld_blocks` — the same guard-gap class that produced #4 and
+#6 above. All current call sites are consistent (each function strips fences internally or
+its only caller pre-strips); no further instance found.
+
+Also checked, each independently:
+
+- **JSON-LD resource exhaustion** — built a small scratch Rust project to directly test
+  `serde_json` 1.0.151's behavior on abnormally deep nesting and confirmed it already
+  enforces a ~128-level recursion limit on both array and object nesting and returns `Err`
+  rather than overflowing the stack — defended at the library level, ahead of and
+  independent of this project's own `MAX_JSON_DEPTH` guard.
+- **ReDoS** — the `regex` crate used throughout has no backtracking engine, so untrusted
+  document content can't trigger catastrophic backtracking.
+- **Path traversal** — every file path in `main.rs`/`loop_run.rs`/`probe.rs`/`report.rs`/
+  `spec.rs` is either a CLI argument supplied by the operator or a label the program
+  generates itself; none is derived from untrusted document/spec content.
+- **`unwrap`/slicing panics** — audited every call site for panics on adversarial input.
+
+Result: **0 new bugs.** No issue was filed — this is a record of what was checked and the
+honest negative result, not a discovery report (same convention as the "no bugs found"
+runtime pass in Round 1 above).
+
+### 2. Edge-case regression suite — 29 → 57 tests (PR #12)
+
+28 tests added across `checks.rs`, `llm.rs`, and `probe.rs`, covering:
+
+| Category | Cases |
+|---|---|
+| Empty / whitespace input | empty doc, whitespace-only doc — metrics, structural scans, `format_issues`, `llms_txt_issues` all checked for panic-free zero/empty output |
+| Huge documents | 50,000-line document, a single 500,000-word line, a 20,000-heading list — checked for correct scaling and no panic |
+| Malformed JSON-LD | input exceeding serde's own recursion limit, truncated JSON, a scalar JSON-LD root, a non-array `mainEntity`, a wide flat array of 5,000 nodes |
+| Extreme Unicode | Arabic RTL text, ZWJ emoji sequences, astral-plane characters, combining diacritics, CRLF line endings — word count / first-paragraph extraction checked for panic-free handling |
+
+PR: [#12](https://github.com/Loop-Suite/GEO-Loop/pull/12) (merged).
+
+### 3. Versioning (PR #13, tag `v0.1.0`)
+
+Added `CHANGELOG.md` (Keep a Changelog format, Added/Fixed/Security sections) and cut the
+first tagged release.
+
+PR: [#13](https://github.com/Loop-Suite/GEO-Loop/pull/13) (merged). Release:
+[v0.1.0](https://github.com/Loop-Suite/GEO-Loop/releases/tag/v0.1.0).
+
+### 4. Runtime verification, round 2 — a real bug found
+
+Round 1's runtime pass (above) used one adversarial document and found nothing new — a clean
+verification result. This round deliberately used a **different** adversarial test document
+— a Python code fence with an unlabeled fence type, and an FAQ block written as plain
+`Q:`/`A:` text rather than bold-labeled — and ran `geo score` plus `geo probe`
+(`--model haiku`) against it for real. This time it found something.
+
+**The bug:** one `geo probe` answer, instead of answering as a brand-blind general user,
+opened with "I'll explore the repository to understand..." and emitted literal agentic
+tool-call text (`<function_calls><invoke name="bash">...`) into the report.
+
+**Root cause:** `Llm::call_once` (`src/llm.rs`) built every subprocess call with
+`--append-system-prompt`, which *appends* this project's `SYSTEM`/`JUDGE_SYSTEM`/
+`PROBE_SYSTEM` on top of Claude Code's own default system prompt (identity, cwd, env info,
+git status, agentic-coding-tool framing) instead of replacing it. `probe.rs`'s own module doc
+promises a "general user with no context," but the default identity underneath was still
+there, so the model still believed it was Claude Code operating inside this repo's working
+directory.
+
+Confirmed with an isolated `claude -p` repro using the exact flags `call_once` passes:
+`--append-system-prompt` left `cache_creation_input_tokens: 4116` (the injected default
+prompt) and produced a "let me explore this repository" answer; the same call with
+`--system-prompt` (full replace) returned `cache_creation_input_tokens: 0` and a clean,
+generic answer.
+
+**Fix:** switch to `--system-prompt` (full replace) — except when `--load-context` is set,
+since that flag intentionally omits `--safe-mode` to load `CLAUDE.md`/skills/plugins from the
+execution directory, and that injection rides on the default system-prompt pipeline that
+`--system-prompt` bypasses entirely. Verified the two flags differ in exactly this way with a
+`CLAUDE.md` marker test, so `--load-context` keeps `--append-system-prompt` (conditional fix,
+no regression on that path).
+
+Filed as [#14](https://github.com/Loop-Suite/GEO-Loop/issues/14), fixed in
+[#15](https://github.com/Loop-Suite/GEO-Loop/pull/15) (merged). Verified end-to-end by
+re-running `geo probe` on the same 3 questions after the fix: cumulative cost for the run
+dropped from **$0.0360 → $0.0088** (the large default-system-prompt cache injection is gone
+from every call).
+
+**Real cost of this pass:**
+
+| Call | Real cost |
+|---|---|
+| `geo score` | $0.0865 |
+| `geo probe` (bug discovery run) | $0.0360 |
+| `geo probe` (post-fix verification run) | $0.0088 |
+| Isolated `claude -p` repro calls (several, each < $0.01) | ~$0.01–0.02 |
+| **Total** | **≈$0.14** |
+
+### `v0.1.0` does not include the #14/#15 fix
+
+`v0.1.0` was tagged at `d8a675f` (PR #13 — the CHANGELOG-only commit), **before #14 was even
+filed**. Confirmed directly:
+
+```
+$ git log v0.1.0..main --oneline
+2c15672 Fix Claude Code's default system prompt leaking into every LLM call (#15)
+```
+
+Exactly one commit sits after the tag, and it's the #14/#15 fix. Anyone running `v0.1.0`'s
+`geo probe` still has the system-prompt leak. Patched forward as **v0.1.1** — see
+[v0.1.1](https://github.com/Loop-Suite/GEO-Loop/releases/tag/v0.1.1).
+
+### Updated totals
+
+| | Round 1 (static + runtime) | Production hardening round | Combined |
+|---|---|---|---|
+| Issues found & fixed | 5 (#2–#6) | 1 (#14) | 6 |
+| Tests | — | 29 → 57 (+28) | 57 |
+| Real LLM cost | $0.0712 | ≈$0.14 | ≈$0.21 |
