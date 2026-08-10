@@ -129,6 +129,61 @@ enum Cmd {
     },
 }
 
+/// Upper bound on `count` (number of drafts generated per `gen` invocation) — each unit directly
+/// costs at least one real (billed) LLM call. Without a cap, a typo (extra zero) turns one
+/// invocation into an unbounded number of API calls with no confirmation step. 20 is far beyond
+/// any real use case (the default is 3).
+const MAX_COUNT: usize = 20;
+
+/// Upper bound on `rounds` (scoring passes per document, `gen`/`score`/`loop`) and `max_iter`
+/// (regeneration iterations, `loop`) — both directly multiply how many real (billed) LLM calls an
+/// invocation makes. Same rationale as `MAX_COUNT`. 10 is far beyond any real use case (defaults
+/// are 2 and 4 respectively).
+const MAX_ROUNDS: usize = 10;
+
+/// Validates count/rounds-style CLI args right after parsing, before any LLM call is made. These
+/// args directly multiply real (billed) LLM calls, so an unbounded value (typo or malicious input)
+/// can trigger a cost runaway with no confirmation step.
+fn validate_cli(cmd: &Cmd) -> Result<()> {
+    match cmd {
+        Cmd::Gen { count, rounds, .. } => {
+            anyhow::ensure!(*count >= 1, "count must be at least 1");
+            anyhow::ensure!(
+                *count <= MAX_COUNT,
+                "count too large ({count}, max {MAX_COUNT}) — would trigger an unbounded number of LLM calls"
+            );
+            anyhow::ensure!(*rounds >= 1, "rounds must be at least 1");
+            anyhow::ensure!(
+                *rounds <= MAX_ROUNDS,
+                "rounds too large ({rounds}, max {MAX_ROUNDS}) — would trigger an unbounded number of LLM calls"
+            );
+        }
+        Cmd::Score { rounds, .. } => {
+            anyhow::ensure!(*rounds >= 1, "rounds must be at least 1");
+            anyhow::ensure!(
+                *rounds <= MAX_ROUNDS,
+                "rounds too large ({rounds}, max {MAX_ROUNDS}) — would trigger an unbounded number of LLM calls"
+            );
+        }
+        Cmd::Loop {
+            max_iter, rounds, ..
+        } => {
+            anyhow::ensure!(*max_iter >= 1, "max_iter must be at least 1");
+            anyhow::ensure!(
+                *max_iter <= MAX_ROUNDS,
+                "max_iter too large ({max_iter}, max {MAX_ROUNDS}) — would trigger an unbounded number of LLM calls"
+            );
+            anyhow::ensure!(*rounds >= 1, "rounds must be at least 1");
+            anyhow::ensure!(
+                *rounds <= MAX_ROUNDS,
+                "rounds too large ({rounds}, max {MAX_ROUNDS}) — would trigger an unbounded number of LLM calls"
+            );
+        }
+        Cmd::Probe { .. } => {}
+    }
+    Ok(())
+}
+
 fn main() {
     if let Err(e) = real_main() {
         eprintln!("Error: {e:#}");
@@ -160,6 +215,7 @@ fn judge_panel(cli: &Cli) -> Vec<Llm> {
 
 fn real_main() -> Result<()> {
     let cli = Cli::parse();
+    validate_cli(&cli.cmd)?;
     let gen_llm = build_llm(&cli, cli.model.clone());
     let judges = judge_panel(&cli);
     if cli.judge_model.is_none() {
@@ -452,4 +508,124 @@ fn collect_docs(input: &Path) -> Result<Vec<PathBuf>> {
         .collect();
     v.sort();
     Ok(v)
+}
+
+#[cfg(test)]
+mod cli_validation_tests {
+    use super::*;
+
+    fn gen_cmd(count: usize, rounds: usize) -> Cmd {
+        Cmd::Gen {
+            spec: PathBuf::new(),
+            idea: PathBuf::new(),
+            count,
+            out: PathBuf::new(),
+            rounds,
+            concurrency: 1,
+            no_score: false,
+        }
+    }
+
+    fn score_cmd(rounds: usize) -> Cmd {
+        Cmd::Score {
+            spec: PathBuf::new(),
+            input: PathBuf::new(),
+            out: PathBuf::new(),
+            rounds,
+            concurrency: 1,
+        }
+    }
+
+    fn loop_cmd(max_iter: usize, rounds: usize) -> Cmd {
+        Cmd::Loop {
+            spec: PathBuf::new(),
+            idea: PathBuf::new(),
+            out: PathBuf::new(),
+            target: 85.0,
+            max_iter,
+            rounds,
+            min_delta: 2.0,
+            patience: 2,
+            angle: String::new(),
+            gate_model: None,
+        }
+    }
+
+    fn probe_cmd() -> Cmd {
+        Cmd::Probe {
+            spec: PathBuf::new(),
+            input: PathBuf::new(),
+            out: PathBuf::new(),
+        }
+    }
+
+    #[test]
+    fn gen_default_and_max_are_accepted() {
+        assert!(validate_cli(&gen_cmd(3, 2)).is_ok());
+        assert!(validate_cli(&gen_cmd(MAX_COUNT, MAX_ROUNDS)).is_ok());
+    }
+
+    #[test]
+    fn gen_count_over_max_is_rejected() {
+        let err = validate_cli(&gen_cmd(MAX_COUNT + 1, 2)).unwrap_err();
+        assert!(err.to_string().contains("count too large"));
+    }
+
+    #[test]
+    fn gen_absurd_count_is_rejected() {
+        // The original bug report scenario: a typo'd/malicious value with no upper bound,
+        // which used to sail straight through into repeated billed LLM calls.
+        assert!(validate_cli(&gen_cmd(1_000_000, 2)).is_err());
+    }
+
+    #[test]
+    fn gen_rounds_over_max_is_rejected() {
+        let err = validate_cli(&gen_cmd(3, MAX_ROUNDS + 1)).unwrap_err();
+        assert!(err.to_string().contains("rounds too large"));
+    }
+
+    #[test]
+    fn gen_zero_count_is_rejected() {
+        assert!(validate_cli(&gen_cmd(0, 2)).is_err());
+    }
+
+    #[test]
+    fn gen_zero_rounds_is_rejected() {
+        assert!(validate_cli(&gen_cmd(3, 0)).is_err());
+    }
+
+    #[test]
+    fn score_rounds_over_max_is_rejected() {
+        let err = validate_cli(&score_cmd(MAX_ROUNDS + 1)).unwrap_err();
+        assert!(err.to_string().contains("rounds too large"));
+    }
+
+    #[test]
+    fn score_default_and_max_are_accepted() {
+        assert!(validate_cli(&score_cmd(2)).is_ok());
+        assert!(validate_cli(&score_cmd(MAX_ROUNDS)).is_ok());
+    }
+
+    #[test]
+    fn loop_max_iter_over_max_is_rejected() {
+        let err = validate_cli(&loop_cmd(MAX_ROUNDS + 1, 2)).unwrap_err();
+        assert!(err.to_string().contains("max_iter too large"));
+    }
+
+    #[test]
+    fn loop_rounds_over_max_is_rejected() {
+        let err = validate_cli(&loop_cmd(4, MAX_ROUNDS + 1)).unwrap_err();
+        assert!(err.to_string().contains("rounds too large"));
+    }
+
+    #[test]
+    fn loop_default_and_max_are_accepted() {
+        assert!(validate_cli(&loop_cmd(4, 2)).is_ok());
+        assert!(validate_cli(&loop_cmd(MAX_ROUNDS, MAX_ROUNDS)).is_ok());
+    }
+
+    #[test]
+    fn probe_has_no_bounded_args_and_is_always_accepted() {
+        assert!(validate_cli(&probe_cmd()).is_ok());
+    }
 }
