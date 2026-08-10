@@ -105,7 +105,7 @@ fn judge_schema(spec: &Spec) -> serde_json::Value {
                     "type": "object",
                     "properties": {
                         "id": {"type": "string", "enum": ids},
-                        "evidence": {"type": "string", "description": "Direct quote from the document (30+ characters)"},
+                        "evidence": {"type": "string", "minLength": 30, "description": "Direct quote from the document (30+ characters)"},
                         "why_not_higher": {"type": "string", "description": "Why the score isn't higher"},
                         "score": {"type": "integer", "minimum": 0, "maximum": 100}
                     },
@@ -155,6 +155,26 @@ fn build_judge_prompt(spec: &Spec, doc: &str, lens: &str) -> String {
         bands = spec.bands_prompt(),
         doc = doc
     )
+}
+
+/// Minimum evidence length (in characters) required to back a criterion score. Mirrors
+/// the pipeline guarantee documented in README.md ("no quoted evidence => score capped
+/// at 60"). The judge prompt asks the model to self-enforce this, but that's not
+/// guaranteed, so it's re-checked here independently of what the model reports.
+const MIN_EVIDENCE_CHARS: usize = 30;
+/// Score cap applied when a criterion's evidence is shorter than `MIN_EVIDENCE_CHARS`.
+const NO_EVIDENCE_SCORE_CAP: f64 = 60.0;
+
+/// Clamps `raw_score` to 0-100, and additionally caps it at `NO_EVIDENCE_SCORE_CAP` when
+/// `evidence` is shorter than `MIN_EVIDENCE_CHARS` (trimmed). Kept separate from
+/// `score_doc`'s aggregation loop so the rule can be unit-tested without a live judge.
+fn effective_score(raw_score: f64, evidence: &str) -> f64 {
+    let score = raw_score.clamp(0.0, 100.0);
+    if evidence.trim().chars().count() < MIN_EVIDENCE_CHARS {
+        score.min(NO_EVIDENCE_SCORE_CAP)
+    } else {
+        score
+    }
 }
 
 /// Trimmed mean. If n>=4, drop one min and one max then average; otherwise plain mean.
@@ -207,7 +227,7 @@ pub fn score_doc(
         let vals: Vec<f64> = results
             .iter()
             .filter_map(|r| r.criteria.iter().find(|x| x.id == c.id))
-            .map(|x| x.score.clamp(0.0, 100.0))
+            .map(|x| effective_score(x.score, &x.evidence))
             .collect();
         let lo = vals.iter().cloned().fold(f64::INFINITY, f64::min);
         let hi = vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
@@ -297,5 +317,25 @@ mod tests {
         assert_eq!(trimmed_mean(&[70.0, 72.0, 74.0, 100.0]), 73.0);
         assert_eq!(trimmed_mean(&[80.0]), 80.0);
         assert!((trimmed_mean(&[70.0, 80.0]) - 75.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn effective_score_caps_short_evidence_at_60() {
+        assert_eq!(effective_score(95.0, "too short"), 60.0);
+        assert_eq!(effective_score(95.0, ""), 60.0);
+        assert_eq!(effective_score(40.0, "too short"), 40.0);
+    }
+
+    #[test]
+    fn effective_score_keeps_score_when_evidence_is_long_enough() {
+        let evidence = "This is a direct quote from the document that is long enough.";
+        assert_eq!(effective_score(95.0, evidence), 95.0);
+    }
+
+    #[test]
+    fn effective_score_still_clamps_to_0_100_range() {
+        let evidence = "This is a direct quote from the document that is long enough.";
+        assert_eq!(effective_score(150.0, evidence), 100.0);
+        assert_eq!(effective_score(-10.0, evidence), 0.0);
     }
 }
