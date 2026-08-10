@@ -19,6 +19,7 @@ The CLI structure, the `claude -p` subprocess backend (`src/llm.rs`), the loop/g
 - [Spec file (`specs/*.toml`)](#spec-file-specstoml)
 - [Build](#build)
 - [Attribution](#attribution)
+- [Empirical review findings](#empirical-review-findings)
 - [Limitations](#limitations)
 
 ## What it evaluates
@@ -334,6 +335,29 @@ Full detail in `NOTICE`. Summary:
 - **[Auriti-Labs/geo-optimizer-skill](https://github.com/Auriti-Labs/geo-optimizer-skill)** (MIT) — `checks::llms_txt_issues()` reimplements that repo's `audit_llms.py::_validate_llms_content()` judgment logic (H1-first-line, blockquote summary, Markdown link, minimum length) in Rust, rewritten to this project's data structures rather than transliterated.
 - **[ai-search-guru/getcito](https://github.com/ai-search-guru/getcito-worlds-first-open-source-aio-aeo-or-geo-tool)** (MIT) — `schema.rs`'s `faq_jsonld()`/`article_jsonld()` reimplement that repo's `seo.ts::faqJsonLd()`/`articleJsonLd()` field structure, used only as the example JSON-LD scaffold shown inside the generation prompt.
 - **Google Search Central structured-data guidelines** (documentation, not code) — the FAQPage/Article/Product/HowTo required- and recommended-field rules in `checks::schema_field_issues()` are implemented directly from Google's public docs, since schema.org itself has no concept of "required" fields.
+
+## Empirical review findings
+
+This repo went through an actual two-phase review, not a hypothetical one: a static code
+review, then a real CLI execution pass (`claude -p --model haiku --judge-model haiku`, real
+API cost, not simulated) verifying the fixes against an adversarial test document. Full
+methodology and every raw number: [evals/README.md](evals/README.md).
+
+| Phase | Result | Real cost |
+|---|---|---|
+| Round 1 — static review | 2 issues fixed (#2, #3) | $0 |
+| Round 2 — deep-dive on the same file | 3 more issues fixed (#4, #5, #6) | $0 |
+| Runtime verification | 0 new bugs; `geo score` 73.8/100, `geo probe` 3/3 real FAQ pairs extracted | $0.0712 |
+| **Total** | **5/5 issues fixed, 0 found at runtime** | **$0.0712** |
+
+**Most notable finding:** two of round 2's three issues (#4 `first_paragraph`, #6
+`extract_faq_pairs`) turned out to be the *identical* bug on independent call paths — each
+function skipped the shared `strip_code_fences()` guard that its sibling functions in
+`checks.rs` already applied, so text inside a fenced code example got read as if it were real
+document content. (#5, found in the same pass, is a distinct root cause — a missing
+case-normalization in a heading-match comparison.) Runtime verification then re-ran `geo
+score`/`geo probe` for real against a test document engineered to trip all 5 fixes at once,
+confirming e.g. `faq_qa_count = 3` (exactly the real pairs, none from the fenced fake one).
 
 ## Limitations
 
