@@ -970,4 +970,225 @@ mod tests {
             issues
         );
     }
+
+    // --- Edge cases: empty input ---------------------------------------------------
+
+    #[test]
+    fn empty_doc_metrics_are_all_zero_no_panic() {
+        let m = metrics("");
+        assert_eq!(m.words, 0);
+        assert_eq!(m.chars, 0);
+        assert_eq!(m.stat_tokens, 0);
+        assert_eq!(m.source_links, 0);
+        assert_eq!(m.faq_qa_count, 0);
+        assert!(!m.has_faq_heading);
+        assert_eq!(m.jsonld_blocks, 0);
+        assert!(m.jsonld_types.is_empty());
+    }
+
+    #[test]
+    fn empty_doc_first_paragraph_is_empty_string() {
+        assert_eq!(first_paragraph(""), "");
+    }
+
+    #[test]
+    fn empty_doc_structural_scans_return_empty_no_panic() {
+        assert!(parse_headings("").is_empty());
+        assert!(split_sections("").is_empty());
+        assert!(heading_hierarchy_issues("").is_empty());
+        assert!(extract_faq_pairs("").is_empty());
+        assert!(extract_jsonld_blocks("").is_empty());
+        assert_eq!(extract_llms_txt_snippet(""), None);
+    }
+
+    #[test]
+    fn empty_doc_format_issues_flags_requirements_without_panicking() {
+        // An empty document should surface issues (missing FAQ/structured-data/answer),
+        // not panic or silently pass.
+        let spec = min_spec();
+        let issues = format_issues(&spec, "");
+        assert!(!issues.is_empty(), "{:?}", issues);
+    }
+
+    #[test]
+    fn empty_snippet_llms_txt_issues_reports_no_content() {
+        let issues = llms_txt_issues("");
+        assert_eq!(issues, vec!["llms.txt: no content".to_string()]);
+    }
+
+    #[test]
+    fn whitespace_only_doc_behaves_like_empty_no_panic() {
+        let doc = "   \n\t\n   \n";
+        let m = metrics(doc);
+        assert_eq!(m.words, 0);
+        assert_eq!(first_paragraph(doc), "");
+    }
+
+    // --- Edge cases: huge documents -------------------------------------------------
+
+    #[test]
+    fn huge_document_metrics_scale_correctly_no_panic() {
+        // ~50k lines / a few MB of text — checks that scanning is linear, correct, and
+        // doesn't panic or overflow on a document far larger than any real GEO doc.
+        let mut doc = String::from("# Title\n\nReal direct answer paragraph here now.\n\n");
+        for i in 0..50_000 {
+            doc.push_str(&format!(
+                "Padding line number {i} with stat {i}% included.\n"
+            ));
+        }
+        doc.push_str("\n## FAQ\n\nQ: Real question?\nA: Real answer.\n");
+        let m = metrics(&doc);
+        assert_eq!(m.words, word_count(&doc));
+        assert_eq!(m.stat_tokens, stat_token_count(&doc));
+        assert_eq!(m.faq_qa_count, 1);
+        assert!(m.has_faq_heading);
+    }
+
+    #[test]
+    fn huge_single_line_document_does_not_panic() {
+        // A single pathologically long line (no newlines at all).
+        let doc: String = "word ".repeat(500_000);
+        let m = metrics(&doc);
+        assert_eq!(m.words, 500_000);
+        assert!(heading_hierarchy_issues(&doc).is_empty());
+    }
+
+    #[test]
+    fn deeply_nested_but_narrow_heading_list_does_not_panic() {
+        // Thousands of headings in sequence (not nested JSON, but a structural stress
+        // test for parse_headings/heading_hierarchy_issues on a huge heading count).
+        let mut doc = String::new();
+        for i in 0..20_000 {
+            doc.push_str(&format!("# H{i}\n"));
+        }
+        let heads = parse_headings(&doc);
+        assert_eq!(heads.len(), 20_000);
+        // All at the same level (H1), so no "skipped level" issues.
+        assert!(heading_hierarchy_issues(&doc).is_empty());
+    }
+
+    // --- Edge cases: malformed / adversarial JSON-LD ---------------------------------
+
+    #[test]
+    fn jsonld_exceeding_serde_recursion_limit_reports_parse_error_not_panic() {
+        // serde_json enforces its own ~128-level recursion limit and returns Err rather
+        // than overflowing the stack, but this pins down that our error path (a reported
+        // format issue, not a crash) is what actually happens for adversarially deep
+        // JSON-LD, regardless of which layer enforces the limit.
+        let mut json = String::new();
+        for _ in 0..500 {
+            json.push('[');
+        }
+        json.push('1');
+        for _ in 0..500 {
+            json.push(']');
+        }
+        let doc = format!("```json\n{json}\n```");
+        let spec = min_spec();
+        let issues = structured_data_issues(&spec, &doc);
+        assert!(
+            issues.iter().any(|i| i.contains("Failed to parse")),
+            "{:?}",
+            issues
+        );
+    }
+
+    #[test]
+    fn truncated_jsonld_reports_syntax_error_not_panic() {
+        let doc = "```json\n{\"@context\":\"https://schema.org\",\"@type\":\"Article\"\n```";
+        let spec = min_spec();
+        let issues = structured_data_issues(&spec, doc);
+        assert!(
+            issues.iter().any(|i| i.contains("Failed to parse")),
+            "{:?}",
+            issues
+        );
+    }
+
+    #[test]
+    fn jsonld_with_scalar_root_does_not_panic() {
+        // A code fence tagged ```json whose content is a bare scalar (valid JSON, but not
+        // an object/array) must not panic collect_types/schema_field_issues.
+        let doc = "```json\n42\n```";
+        let blocks = extract_jsonld_blocks(doc);
+        assert_eq!(blocks.len(), 1);
+        let v: serde_json::Value = serde_json::from_str(&blocks[0]).unwrap();
+        let mut types = BTreeSet::new();
+        collect_types(&v, &mut types);
+        assert!(types.is_empty());
+        assert!(schema_field_issues(&v).is_empty());
+    }
+
+    #[test]
+    fn jsonld_with_non_array_main_entity_does_not_panic() {
+        let v: serde_json::Value = serde_json::from_str(
+            r#"{"@context":"https://schema.org","@type":"FAQPage","mainEntity":"not an array"}"#,
+        )
+        .unwrap();
+        let issues = schema_field_issues(&v);
+        assert!(
+            issues.iter().any(|i| i.contains("mainEntity")),
+            "{:?}",
+            issues
+        );
+    }
+
+    #[test]
+    fn jsonld_with_wide_flat_array_of_many_types_does_not_panic() {
+        // Wide (not deep) structure: many sibling nodes rather than nested ones.
+        let items: Vec<String> = (0..5_000)
+            .map(|i| format!(r#"{{"@type":"Thing{i}"}}"#))
+            .collect();
+        let doc = format!("```json\n[{}]\n```", items.join(","));
+        let blocks = extract_jsonld_blocks(&doc);
+        let v: serde_json::Value = serde_json::from_str(&blocks[0]).unwrap();
+        let mut types = BTreeSet::new();
+        collect_types(&v, &mut types);
+        assert_eq!(types.len(), 5_000);
+    }
+
+    // --- Edge cases: extreme unicode -------------------------------------------------
+
+    #[test]
+    fn rtl_arabic_text_word_count_and_first_paragraph_do_not_panic() {
+        let doc = "# عنوان\n\nهذه هي الفقرة الأولى التي تجيب مباشرة على السؤال الأساسي هنا الآن.\n";
+        let para = first_paragraph(doc);
+        assert!(!para.is_empty());
+        assert!(word_count(&para) > 0);
+    }
+
+    #[test]
+    fn emoji_zwj_sequences_and_astral_plane_chars_do_not_panic() {
+        // Family emoji (ZWJ sequence), flag emoji (regional indicator pair), and an
+        // astral-plane mathematical bold character — all multi-byte, some multi-codepoint
+        // grapheme clusters.
+        let doc = "# 👨‍👩‍👧‍👦 Title 🇰🇷\n\n\
+                    Real opening paragraph with 𝕳𝖊𝖑𝖑𝖔 text and enough words to pass here.\n\n\
+                    ## FAQ\n\nQ: 질문 emoji 👍?\nA: 답변 emoji 👌.\n";
+        let m = metrics(doc);
+        assert_eq!(m.faq_qa_count, 1);
+        let para = first_paragraph(doc);
+        assert!(para.contains("𝕳𝖊𝖑𝖑𝖔"));
+        // truncate() must not panic mid-grapheme on emoji/ZWJ input.
+        let _ = crate::llm::truncate(doc, 5);
+        let _ = crate::llm::truncate(doc, doc.chars().count() + 100);
+    }
+
+    #[test]
+    fn combining_diacritics_do_not_panic() {
+        // "e" + combining acute accent (U+0301), rather than the precomposed "é".
+        let doc = "# Cafe\u{0301} Title\n\nThis is the real opening paragraph, cafe\u{0301} style, long enough now.\n";
+        let para = first_paragraph(doc);
+        assert!(!para.is_empty());
+        let heads = parse_headings(doc);
+        assert_eq!(heads.len(), 1);
+    }
+
+    #[test]
+    fn crlf_line_endings_are_handled_like_lf() {
+        let doc = "# Title\r\n\r\nReal direct answer paragraph with enough words to pass the check here now.\r\n\r\n```\r\n# fenced heading, ignored\r\n```\r\n";
+        let heads = parse_headings(&strip_code_fences(doc));
+        assert_eq!(heads.len(), 1, "{:?}", heads);
+        assert_eq!(heads[0].text, "Title");
+    }
 }
