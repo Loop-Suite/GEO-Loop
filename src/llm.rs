@@ -253,3 +253,54 @@ pub fn truncate(s: &str, n: usize) -> String {
         s.chars().take(n).collect::<String>() + "…"
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn truncate_empty_string_does_not_panic() {
+        assert_eq!(truncate("", 0), "");
+        assert_eq!(truncate("", 10), "");
+    }
+
+    #[test]
+    fn truncate_zero_length_on_nonempty_string() {
+        assert_eq!(truncate("hello", 0), "…");
+    }
+
+    #[test]
+    fn truncate_handles_multibyte_and_zwj_emoji_without_panicking() {
+        // "👨‍👩‍👧‍👦" is a ZWJ sequence of 7 Unicode scalar values, each multi-byte.
+        // Truncating mid-sequence must not panic on a byte boundary.
+        let s = "👨‍👩‍👧‍👦 family emoji text";
+        for n in 0..=3 {
+            let _ = truncate(s, n);
+        }
+        assert_eq!(truncate(s, 1000), s);
+    }
+
+    #[test]
+    fn truncate_exact_length_boundary_has_no_ellipsis() {
+        let s = "abcde";
+        assert_eq!(truncate(s, 5), "abcde");
+        assert_eq!(truncate(s, 4), "abcd…");
+    }
+
+    #[test]
+    fn extract_json_empty_input_returns_err_not_panic() {
+        assert!(extract_json("").is_err());
+    }
+
+    #[test]
+    fn extract_json_malformed_input_returns_err_not_panic() {
+        assert!(extract_json("not json at all { broken").is_err());
+    }
+
+    #[test]
+    fn extract_json_handles_fenced_json_with_unicode_content() {
+        let raw = "Here you go:\n```json\n{\"answer\": \"한글 emoji 👍 text\"}\n```\nThanks.";
+        let v = extract_json(raw).expect("should extract fenced JSON");
+        assert_eq!(v["answer"], "한글 emoji 👍 text");
+    }
+}
