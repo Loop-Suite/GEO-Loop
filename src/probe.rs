@@ -160,4 +160,25 @@ mod tests {
         let ov = keyword_overlap(doc, probe);
         assert!(ov < OVERLAP_THRESHOLD, "{ov}");
     }
+
+    #[test]
+    fn overlap_both_empty_does_not_panic() {
+        assert_eq!(keyword_overlap("", ""), 1.0);
+    }
+
+    #[test]
+    fn significant_tokens_handles_unicode_and_emoji_without_panicking() {
+        let toks = significant_tokens("한글 단어 emoji 👍 test123 a bb ccc");
+        // "a"/"bb"/"ccc" are dropped (short, no digit); "test123" kept (has digit);
+        // Korean words kept if >=4 chars by codepoint count.
+        assert!(toks.contains("test123"));
+        assert!(!toks.contains("a"));
+    }
+
+    #[test]
+    fn run_on_document_without_faq_section_returns_clear_error_not_panic() {
+        let doc = "# Title\n\nJust a plain document with no FAQ section at all.\n";
+        let pairs = checks::extract_faq_pairs(doc);
+        assert!(pairs.is_empty());
+    }
 }
