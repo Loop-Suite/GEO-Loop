@@ -71,7 +71,26 @@ impl Llm {
             cmd.arg("--max-budget-usd").arg(format!("{b}"));
         }
         if let Some(s) = system {
-            cmd.arg("--append-system-prompt").arg(s);
+            if self.load_context {
+                // --load-context intentionally omits --safe-mode so CLAUDE.md/skills/
+                // plugins get loaded from the execution directory — that injection rides
+                // on Claude Code's default system prompt pipeline, which --system-prompt
+                // (full replace) would bypass entirely. Append instead, accepting that the
+                // default identity/cwd/env system prompt stays present underneath, since
+                // that's what --load-context opted into.
+                cmd.arg("--append-system-prompt").arg(s);
+            } else {
+                // No CLAUDE.md/context to preserve (--safe-mode is active). Fully replace
+                // Claude Code's default identity/cwd/env/git-status system prompt so the
+                // subprocess behaves purely as the persona/task this project specifies —
+                // --append-system-prompt would otherwise leave that default prompt intact
+                // underneath ours, contradicting the "pure text generation, no file
+                // access" intent above and, concretely, breaking geo probe's "a general
+                // user with no context" guarantee (confirmed live: the model treated the
+                // execution directory as a codebase to investigate instead of answering as
+                // a context-free general user — see issue #14).
+                cmd.arg("--system-prompt").arg(s);
+            }
         }
         if let Some(js) = schema {
             cmd.arg("--json-schema").arg(js);
