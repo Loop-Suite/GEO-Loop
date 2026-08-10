@@ -5,6 +5,18 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.1] - 2026-08-10
+
+### Fixed
+
+- `Llm::call_once` used `--append-system-prompt`, which appended this project's
+  `SYSTEM`/`JUDGE_SYSTEM`/`PROBE_SYSTEM` on top of Claude Code's own default system
+  prompt (identity, cwd, env info, git status, agentic-coding-tool framing) instead of
+  replacing it. This broke `geo probe`'s documented "a general user with no context"
+  guarantee: the sub-agent could still believe it was Claude Code operating inside this
+  project's directory and attempt to explore the local repository instead of answering
+  as a context-free general user. Switched to `--system-prompt` (full replace) (#15).
+
 ## [0.1.0] - 2026-08-10
 
 Initial release.
