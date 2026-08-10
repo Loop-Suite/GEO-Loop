@@ -340,17 +340,22 @@ Full detail in `NOTICE`. Summary:
 
 This repo went through an actual two-phase review, not a hypothetical one: a static code
 review, then a real CLI execution pass (`claude -p --model haiku --judge-model haiku`, real
-API cost, not simulated) verifying the fixes against an adversarial test document. Full
-methodology and every raw number: [evals/README.md](evals/README.md).
+API cost, not simulated) verifying the fixes against an adversarial test document. A
+follow-up production hardening round then re-audited those fixes, tripled the test count,
+cut a tagged release, and ran a *second* real runtime pass against a different adversarial
+document — which caught a real bug the first pass never exercised. Full methodology and
+every raw number: [evals/README.md](evals/README.md).
 
 | Phase | Result | Real cost |
 |---|---|---|
 | Round 1 — static review | 2 issues fixed (#2, #3) | $0 |
 | Round 2 — deep-dive on the same file | 3 more issues fixed (#4, #5, #6) | $0 |
 | Runtime verification | 0 new bugs; `geo score` 73.8/100, `geo probe` 3/3 real FAQ pairs extracted | $0.0712 |
-| **Total** | **5/5 issues fixed, 0 found at runtime** | **$0.0712** |
+| Adversarial re-audit + edge-case tests | 0 new bugs; 29 → 57 tests ([#12](https://github.com/Loop-Suite/GEO-Loop/pull/12)) | $0 |
+| Runtime verification, round 2 | 1 real bug found & fixed: `geo probe`'s brand-blind guarantee broken by a system-prompt leak ([#14](https://github.com/Loop-Suite/GEO-Loop/issues/14) / [#15](https://github.com/Loop-Suite/GEO-Loop/pull/15)) | ≈$0.14 |
+| **Grand total** | **6/6 issues fixed, 57 tests** | **≈$0.21** |
 
-**Most notable finding:** two of round 2's three issues (#4 `first_paragraph`, #6
+**Most notable finding (round 1):** two of round 2's three issues (#4 `first_paragraph`, #6
 `extract_faq_pairs`) turned out to be the *identical* bug on independent call paths — each
 function skipped the shared `strip_code_fences()` guard that its sibling functions in
 `checks.rs` already applied, so text inside a fenced code example got read as if it were real
@@ -358,6 +363,16 @@ document content. (#5, found in the same pass, is a distinct root cause — a mi
 case-normalization in a heading-match comparison.) Runtime verification then re-ran `geo
 score`/`geo probe` for real against a test document engineered to trip all 5 fixes at once,
 confirming e.g. `faq_qa_count = 3` (exactly the real pairs, none from the fenced fake one).
+
+**Most notable finding (production hardening round):** the round-1 runtime pass found
+nothing because it never exercised the bug — a *second* runtime pass, against a different
+adversarial document, caught `geo probe` leaking Claude Code's default agentic system prompt
+(identity, cwd, env info) into every LLM call via `--append-system-prompt` instead of
+replacing it with `--system-prompt`, so probe answers stopped being brand-blind and one
+started emitting literal tool-call text. Fixed in [#15](https://github.com/Loop-Suite/GEO-Loop/pull/15).
+**`v0.1.0` was tagged one commit before this fix landed and does not include it** — patched
+forward as [`v0.1.1`](https://github.com/Loop-Suite/GEO-Loop/releases/tag/v0.1.1). See
+[evals/README.md](evals/README.md#production-hardening-round) for full details.
 
 ## Limitations
 
