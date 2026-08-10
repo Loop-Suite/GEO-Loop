@@ -34,8 +34,15 @@ pub struct Metrics {
     pub jsonld_types: Vec<String>,
 }
 
+/// Normalizes a heading/title for fuzzy matching: strips whitespace and lowercases, so a
+/// document heading that differs from the spec's section title only in case (e.g. "## overview"
+/// vs. spec title "Overview") still matches. Mirrors the case-insensitive convention `faq_metrics`
+/// already uses for FAQ heading matching below.
 fn norm(s: &str) -> String {
-    s.chars().filter(|c| !c.is_whitespace()).collect()
+    s.chars()
+        .filter(|c| !c.is_whitespace())
+        .collect::<String>()
+        .to_lowercase()
 }
 
 /// Replaces lines inside ``` code fences with blank lines. This keeps the heading/stats/link/FAQ
@@ -691,7 +698,8 @@ pub fn format_issues(spec: &Spec, doc: &str) -> Vec<String> {
 mod tests {
     use super::*;
     use crate::spec::{
-        AnswerSummarySpec, Criterion, FaqSpec, LlmsTxtSpec, StatisticsSpec, StructuredDataSpec,
+        AnswerSummarySpec, Criterion, FaqSpec, LlmsTxtSpec, Section, StatisticsSpec,
+        StructuredDataSpec,
     };
 
     fn min_spec() -> Spec {
@@ -715,6 +723,23 @@ mod tests {
             structured_data: StructuredDataSpec::default(),
             llms_txt: LlmsTxtSpec::default(),
         }
+    }
+
+    #[test]
+    fn missing_sections_matches_heading_case_insensitively() {
+        // The doc's heading differs from the spec's section title only in case; it must
+        // still count as present, matching faq_metrics's case-insensitive convention.
+        let mut spec = min_spec();
+        spec.sections = vec![Section {
+            id: "overview".into(),
+            title: "Overview".into(),
+            guide: String::new(),
+            words: 0,
+            required: true,
+        }];
+        let doc = "# T\n\n## overview\n\nBody text here.\n";
+        let missing = missing_sections(&spec, doc);
+        assert!(missing.is_empty(), "{:?}", missing);
     }
 
     #[test]
