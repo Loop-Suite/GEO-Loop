@@ -122,7 +122,11 @@ fn is_h1(line: &str) -> bool {
 
 /// The paragraph text from after H1 (or from the start of the document) up to the first blank line.
 /// Used for a heuristic check (presence + length) of whether a direct-answer sentence exists.
+/// Scans fence-stripped text, like every other structural scanner in this file — otherwise a
+/// single-`#` comment line inside a fenced code example (e.g. a Python/Shell/YAML `# comment`)
+/// would be mistaken for the document's H1.
 pub fn first_paragraph(doc: &str) -> String {
+    let doc = strip_code_fences(doc);
     let has_h1 = doc.lines().any(is_h1);
     let mut seen_h1 = !has_h1;
     let mut collected: Vec<String> = Vec::new();
@@ -755,6 +759,23 @@ mod tests {
         let spec = min_spec();
         let issues = answer_summary_issues(&spec, doc);
         assert!(issues.is_empty(), "{:?}", issues);
+    }
+
+    #[test]
+    fn first_paragraph_ignores_hash_comment_inside_code_fence() {
+        // A document with no real H1 but a fenced shell example containing a "# comment"
+        // line must not have that fenced comment mistaken for the document's H1 — the
+        // real opening paragraph should still be returned.
+        let doc =
+            "This is the real opening paragraph that directly answers the question in full.\n\n\
+                    ```bash\n# Install dependencies\npip install foo\n```\n\n\
+                    More trailing body text here.\n";
+        let para = first_paragraph(doc);
+        assert!(
+            para.contains("real opening paragraph"),
+            "expected the real opening paragraph, got {:?}",
+            para
+        );
     }
 
     #[test]
