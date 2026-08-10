@@ -234,7 +234,11 @@ pub fn faq_metrics(doc: &str) -> (bool, usize) {
 
 /// Reuses the same "Q:"/"A:" recognition rules as `faq_metrics`, but returns the actual
 /// question/answer text pairs instead of a count. Used by the `geo probe` subcommand to extract target queries.
+/// Strips code fences internally (unlike `faq_metrics`, whose only caller pre-strips via
+/// `metrics()`) so a fenced example that happens to contain `Q:`/`A:`-shaped lines — e.g.
+/// documentation showing the FAQ format — is never picked up as a real FAQ entry.
 pub fn extract_faq_pairs(doc: &str) -> Vec<(String, String)> {
+    let doc = strip_code_fences(doc);
     static Q_RE: OnceLock<Regex> = OnceLock::new();
     static A_RE: OnceLock<Regex> = OnceLock::new();
     let q_re = Q_RE.get_or_init(|| Regex::new(r"(?i)^q[:.]\s*(\S.*)$").unwrap());
@@ -890,6 +894,18 @@ mod tests {
         assert_eq!(pairs.len(), 2);
         assert_eq!(pairs[0].0, "How many days does shipping take?");
         assert_eq!(pairs[0].1, "It takes an average of 2-3 days.");
+    }
+
+    #[test]
+    fn extract_faq_pairs_ignores_qa_inside_code_fence() {
+        // geo probe calls extract_faq_pairs directly on the raw document. A fenced example
+        // showing the FAQ format (e.g. documentation) must not be extracted as a real pair.
+        let doc = "# T\n\nIntro text.\n\n\
+                    ```markdown\nQ: Example question in a code sample?\nA: Example answer in a code sample.\n```\n\n\
+                    ## FAQ\n\nQ: Real question?\nA: Real answer.\n";
+        let pairs = extract_faq_pairs(doc);
+        assert_eq!(pairs.len(), 1, "{:?}", pairs);
+        assert_eq!(pairs[0].0, "Real question?");
     }
 
     #[test]
