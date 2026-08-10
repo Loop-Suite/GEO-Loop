@@ -183,6 +183,16 @@ fn link_regex() -> &'static Regex {
     RE.get_or_init(|| Regex::new(r"\[([^\]]+)\]\(([^)]+)\)").unwrap())
 }
 
+/// Strips markdown bold markers (`**`) from a line before FAQ label matching. A plain
+/// `trim_start_matches("**")`/`trim_end_matches("**")` only removes `**` sitting at the
+/// very start/end of the whole line, so a common bold-label format like `**Q:** text`
+/// (where `**` wraps just the label, not the whole line) leaves the trailing `**` stuck
+/// to the captured text (e.g. "** text" instead of "text"). Removing every `**`
+/// occurrence, regardless of position, handles that case as well as `**Q**: text`.
+fn strip_bold_markers(s: &str) -> String {
+    s.replace("**", "")
+}
+
 /// Whether an FAQ heading is present + count of Q&A pairs matching the "Q:"/"A:" pattern.
 pub fn faq_metrics(doc: &str) -> (bool, usize) {
     let heads = parse_headings(doc);
@@ -199,7 +209,8 @@ pub fn faq_metrics(doc: &str) -> (bool, usize) {
     let mut pending_q = false;
     for line in doc.lines() {
         let t = line.trim_start_matches('#').trim();
-        let t = t.trim_start_matches("**").trim_end_matches("**").trim();
+        let t = strip_bold_markers(t);
+        let t = t.trim();
         if q_re.is_match(t) {
             pending_q = true;
         } else if pending_q && a_re.is_match(t) {
@@ -221,7 +232,8 @@ pub fn extract_faq_pairs(doc: &str) -> Vec<(String, String)> {
     let mut pending_q: Option<String> = None;
     for line in doc.lines() {
         let t = line.trim_start_matches('#').trim();
-        let t = t.trim_start_matches("**").trim_end_matches("**").trim();
+        let t = strip_bold_markers(t);
+        let t = t.trim();
         if let Some(cap) = q_re.captures(t) {
             pending_q = Some(cap[1].trim().to_string());
         } else if let Some(cap) = a_re.captures(t) {
@@ -832,6 +844,25 @@ mod tests {
         assert_eq!(pairs.len(), 2);
         assert_eq!(pairs[0].0, "How many days does shipping take?");
         assert_eq!(pairs[0].1, "It takes an average of 2-3 days.");
+    }
+
+    #[test]
+    fn extract_faq_pairs_strips_bold_markdown_labels() {
+        let doc = "# T\n\n## FAQ\n\n**Q:** What is X?\n**A:** X is Y.\n\n**Q**: Another question?\n**A**: Another answer.\n";
+        let pairs = extract_faq_pairs(doc);
+        assert_eq!(pairs.len(), 2);
+        assert_eq!(pairs[0].0, "What is X?");
+        assert_eq!(pairs[0].1, "X is Y.");
+        assert_eq!(pairs[1].0, "Another question?");
+        assert_eq!(pairs[1].1, "Another answer.");
+    }
+
+    #[test]
+    fn faq_metrics_counts_bold_markdown_qa_pairs() {
+        let doc = "# T\n\n## FAQ\n\n**Q:** What is X?\n**A:** X is Y.\n";
+        let (has_heading, count) = faq_metrics(doc);
+        assert!(has_heading);
+        assert_eq!(count, 1);
     }
 
     #[test]
